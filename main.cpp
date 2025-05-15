@@ -16,17 +16,19 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 #include <DFPlayerMini_Fast.h>
+#include <SD.h>  // SDカードライブラリ追加
 
-#define LCD_CS   18    // GPIO18 (D9 / JP2-4)
-#define LCD_DC   21    // GPIO21 (D10 / JP2-3)
-#define LCD_RST   9    // GPIO9  (D6 / JP2-7)
-#define LCD_SCK  48    // GPIO48 (D13 / JP1-8 / SCK)
-#define LCD_MOSI 38    // GPIO38 (D11 / JP1-6 / COPI)
-#define LCD_MISO 47    // GPIO47 (D12 / JP1-5 / CIPO)
-#define RTC_SDA   5    // GPIO5  (D2 / JP2-6 / A4 SDA)
-#define RTC_SCL   6    // GPIO6  (D3 / JP2-5 / A5 SCL)
-#define DFP_RX    43   // GPIO43 (D0 / JP1-2 / RX0)
-#define DFP_TX    44   // GPIO44 (D1 / JP1-3 / TX0)
+#define LCD_CS   18
+#define LCD_DC   21
+#define LCD_RST   9
+#define LCD_SCK  48
+#define LCD_MOSI 38
+#define LCD_MISO 47
+#define RTC_SDA   5
+#define RTC_SCL   6
+#define DFP_RX    43
+#define DFP_TX    44
+#define SD_CS     7   // 追加: SDカード CSピン定義
 
 #define PCF8574_ADDRESS 0x20
 
@@ -48,7 +50,7 @@ void setup() {
 
   if (dfp.begin(dfpSerial, true)) {
     Serial.println("DFPlayer Mini online.");
-    dfp.volume(30);
+    dfp.volume(15);
     dfpConnected = true;
   } else {
     Serial.println("DFPlayer Mini not detected.");
@@ -56,7 +58,7 @@ void setup() {
   }
 
   SPI.begin(LCD_SCK, LCD_MISO, LCD_MOSI, LCD_CS);
-  SPI.setFrequency(80000000);  // 80MHzにアップ
+  SPI.setFrequency(80000000);
   tft.begin();
   tft.setRotation(3);
   tft.fillScreen(ILI9341_BLACK);
@@ -82,8 +84,21 @@ void setup() {
   Wire.beginTransmission(PCF8574_ADDRESS);
   Wire.write(0xFF);
   Wire.endTransmission();
-}
 
+  Wire.begin(RTC_SDA, RTC_SCL);
+
+  if (!SD.begin(SD_CS, SPI)) {
+    Serial.println("SDカード初期化失敗");
+    tft.setCursor(10, 50);
+    tft.fillRect(10, 50, 220, 20, ILI9341_BLACK);
+    tft.setCursor(10, 50);
+    tft.println("SD init failed");
+  } else {
+    Serial.println("SDカード初期化成功");
+    tft.setCursor(10, 50);
+    tft.println("SD init success");
+  }
+}
 void loop() {
   static byte lastInputState = 0xFF;
   static unsigned long lastDisplayTime = 0;
@@ -101,9 +116,13 @@ void loop() {
     previousBusyState = busyState;
   }
 
-  tft.fillRect(10, 120, 220, 20, ILI9341_BLACK);
-  tft.setCursor(10, 120);
-  tft.print(busyState ? "Busy..." : "");
+  static bool lastDrawnBusyState = false;
+  if (busyState != lastDrawnBusyState) {
+    tft.fillRect(10, 120, 220, 20, ILI9341_BLACK);
+    tft.setCursor(10, 120);
+    tft.print(busyState ? "Busy..." : "");
+    lastDrawnBusyState = busyState;
+  }
 
   tft.fillRect(10, 150, 220, 20, ILI9341_BLACK);
   tft.setCursor(10, 150);
@@ -126,23 +145,19 @@ void loop() {
   }
 
   unsigned long nowMillis = millis();
-  if (nowMillis - lastDisplayTime > 100)  // 
+  if (nowMillis - lastDisplayTime > 500)  // 約2fps相当
   {
     lastDisplayTime = nowMillis;
 
     static DateTime lastRtcTime;
-    if (nowMillis % 1000 < 33) {  // 1秒ごとにRTC取得
-      lastRtcTime = rtc.now();
-    }
-    // RTC更新タイミングでは lastRtcTime を更新するだけ
-    if (nowMillis % 1000 < 33) {
+    if (nowMillis % 1000 < 500) {  // 0.5秒ごとにRTC取得
       lastRtcTime = rtc.now();
     }
     DateTime now = lastRtcTime;
     char buf[32];
     snprintf(buf, sizeof(buf), "%04d/%02d/%02d %02d:%02d:%02d", now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
 
-    tft.fillRect(10, 30, 220, 20, ILI9341_BLACK);
+    tft.fillRect(10, 30, 240, 20, ILI9341_BLACK);  // 秒の桁ズレ対策で幅拡張
     tft.setCursor(10, 30);
     tft.print(buf);
 
