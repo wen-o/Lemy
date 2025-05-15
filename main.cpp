@@ -1,3 +1,11 @@
+// =============================================
+// 【配線ノイズ対策メモ】
+// ・SPIクロック(LCD_SCK)だけツイスト化し、他のSPI信号線から離す
+// ・MOSI(LCD_MOSI)とMISO(LCD_MISO)は距離を確保
+// ・電源ラインは22AWGでキャパシタ追加
+// ・この配線構成で80MHz SPI通信が安定
+// =============================================
+
 // Arduino Nano ESP32 + DFPlayerMini Debug Sketch
 // Board: Arduino Nano ESP32 (ABX00083)
 
@@ -9,16 +17,17 @@
 #include <Adafruit_ILI9341.h>
 #include <DFPlayerMini_Fast.h>
 
-#define LCD_CS   18
-#define LCD_DC   21
-#define LCD_RST   9
-#define LCD_SCK  48
-#define LCD_MOSI 38
-#define LCD_MISO 47
-#define RTC_SDA   5
-#define RTC_SCL   6
-#define DFP_RX    43
-#define DFP_TX    44
+#define LCD_CS   18    // GPIO18 (D9 / JP2-4)
+#define LCD_DC   21    // GPIO21 (D10 / JP2-3)
+#define LCD_RST   9    // GPIO9  (D6 / JP2-7)
+#define LCD_SCK  48    // GPIO48 (D13 / JP1-8 / SCK)
+#define LCD_MOSI 38    // GPIO38 (D11 / JP1-6 / COPI)
+#define LCD_MISO 47    // GPIO47 (D12 / JP1-5 / CIPO)
+#define RTC_SDA   5    // GPIO5  (D2 / JP2-6 / A4 SDA)
+#define RTC_SCL   6    // GPIO6  (D3 / JP2-5 / A5 SCL)
+#define DFP_RX    43   // GPIO43 (D0 / JP1-2 / RX0)
+#define DFP_TX    44   // GPIO44 (D1 / JP1-3 / TX0)
+
 #define PCF8574_ADDRESS 0x20
 
 RTC_DS1307 rtc;
@@ -47,7 +56,7 @@ void setup() {
   }
 
   SPI.begin(LCD_SCK, LCD_MISO, LCD_MOSI, LCD_CS);
-  SPI.setFrequency(500000);
+  SPI.setFrequency(80000000);  // 80MHzにアップ
   tft.begin();
   tft.setRotation(3);
   tft.fillScreen(ILI9341_BLACK);
@@ -116,9 +125,20 @@ void loop() {
     isPlaying = false;
   }
 
-  if (millis() - lastDisplayTime > 500) {
-    lastDisplayTime = millis();
-    DateTime now = rtc.now();
+  unsigned long nowMillis = millis();
+  if (nowMillis - lastDisplayTime > 100)  // 
+  {
+    lastDisplayTime = nowMillis;
+
+    static DateTime lastRtcTime;
+    if (nowMillis % 1000 < 33) {  // 1秒ごとにRTC取得
+      lastRtcTime = rtc.now();
+    }
+    // RTC更新タイミングでは lastRtcTime を更新するだけ
+    if (nowMillis % 1000 < 33) {
+      lastRtcTime = rtc.now();
+    }
+    DateTime now = lastRtcTime;
     char buf[32];
     snprintf(buf, sizeof(buf), "%04d/%02d/%02d %02d:%02d:%02d", now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
 
